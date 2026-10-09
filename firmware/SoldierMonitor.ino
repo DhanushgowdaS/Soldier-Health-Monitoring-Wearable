@@ -73,20 +73,24 @@ void serveFile(const char* path,const char* mime){
 }
 void telegramAlert(const String& reason){
  if(!telegramEnabled || WiFi.status()!=WL_CONNECTED || millis()-lastTelegram<TG_COOLDOWN_MS)return;
+ const bool normal = reason == "NORMAL";
  WiFiClientSecure client;
  client.setInsecure(); // Prototype only; production should validate Telegram's TLS certificate.
  HTTPClient http;
  String url=String("https://api.telegram.org/bot")+TELEGRAM_BOT_TOKEN+"/sendMessage";
  if(!http.begin(client,url))return;
  http.addHeader("Content-Type","application/json");
- String msg="SOLDIER HEALTH ALERT\nReason: "+reason;
- msg+="\nHeart rate: "+(valid(s.hr)?String(s.hr,0)+" BPM":String("Unavailable"));
- msg+="\nAmbient temperature: "+(valid(s.ambient)?String(s.ambient,1)+" C":String("Unavailable"));
- msg+="\nHumidity: "+(valid(s.humidity)?String(s.humidity,0)+" %":String("Unavailable"));
- msg+="\nActivity: "+s.activity+"\nFall: "+String(s.fall?"POSSIBLE FALL":"No");
- if(s.gpsFix) msg+="\nLatitude: "+String(s.lat,6)+"\nLongitude: "+String(s.lon,6)+"\nLocation: "+mapUrl();
- else msg+="\nGPS: no recent fix";
- JsonDocument d; d["chat_id"]=TELEGRAM_CHAT_ID; d["text"]=msg;
+ String msg = normal ? "🟢 <b>SOLDIER STATUS: NORMAL</b>\n🟢 All monitored alert conditions are clear."
+                     : "🚨 <b>SOLDIER EMERGENCY ALERT</b>\n🔴 <b>Fault:</b> "+reason;
+ msg += "\n\n❤️ <b>Heart Rate:</b> "+(valid(s.hr)?String(s.hr,0)+" BPM":String("Unavailable"));
+ msg += "\n🫁 <b>SpO₂:</b> Unavailable (algorithm not implemented)";
+ msg += "\n🌡️ <b>Ambient Temperature:</b> "+(valid(s.ambient)?String(s.ambient,1)+" °C":String("Unavailable"));
+ msg += "\n💧 <b>Humidity:</b> "+(valid(s.humidity)?String(s.humidity,0)+" %":String("Unavailable"));
+ msg += "\n🏃 <b>Activity:</b> "+s.activity;
+ msg += "\n🛡️ <b>Fall:</b> "+String(s.fall?"🔴 POSSIBLE FALL":"🟢 Not detected");
+ if(s.gpsFix) msg += "\n\n📍 <b>Location:</b> "+String(s.lat,6)+", "+String(s.lon,6)+"\n🗺️ <a href=\""+mapUrl()+"\">Open location in Google Maps</a>";
+ else msg += "\n\n📍 <b>Location:</b> GPS fix unavailable";
+ JsonDocument d; d["chat_id"]=TELEGRAM_CHAT_ID; d["text"]=msg; d["parse_mode"]="HTML"; d["disable_web_page_preview"]=true;
  String body; serializeJson(d,body);
  int code=http.POST(body); Serial.printf("Telegram HTTP status: %d\n",code); http.end();
  if(code>=200 && code<300)lastTelegram=millis();
@@ -131,7 +135,7 @@ void checkAlerts(){
  digitalWrite(BUZZER_PIN,s.buzzer?HIGH:LOW);
  s.status=s.buzzer?"WARNING":(s.gpsFix?"MONITORING":"WAITING FOR GPS");
  if(reason.length() && reason!=lastAlert){telegramAlert(reason);lastAlert=reason;}
- if(!reason.length())lastAlert="";
+ if(!reason.length() && lastAlert.length()){telegramAlert("NORMAL");lastAlert="";}
 }
 void updateLcd(){
  lcd.clear();lcd.setCursor(0,0);

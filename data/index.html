@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07131e"><title>Soldier Health Monitor</title><link rel="stylesheet" href="/style.css"></head>
+<body><main class="dashboard">
+<header class="topbar"><div><p class="eyebrow">FIELD HEALTH SYSTEM</p><h1>Soldier Health Monitor</h1><p class="subheading">Live wearable telemetry</p></div><div class="connection"><span id="connectionDot" class="dot"></span><span id="connectionText">Connecting…</span></div></header>
+<section class="metrics">
+<article class="metric heart"><div class="metric-icon">♥</div><div><p>Heart Rate</p><strong id="heartRate">--</strong><small>BPM</small><span class="status-line" id="heartStatus">Waiting for sensor</span></div></article>
+<article class="metric oxygen"><div class="metric-icon">◉</div><div><p>SpO₂</p><strong id="spo2">--</strong><small>%</small><span class="status-line">Unavailable in starter firmware</span></div></article>
+<article class="metric temperature"><div class="metric-icon">♨</div><div><p>Ambient Temperature</p><strong id="ambientC">--</strong><small>°C</small><span class="status-line">DHT22 environment reading</span></div></article>
+<article class="metric activity"><div class="metric-icon">➤</div><div><p>Activity</p><strong id="activity">Unknown</strong><span class="status-line">MPU6050 motion estimate</span></div></article>
+<article class="metric fall"><div class="metric-icon">!</div><div><p>Fall Detection</p><strong id="fallStatus">Normal</strong><span class="status-line" id="fallHint">Heuristic detection</span></div></article>
+<article class="metric humidity"><div class="metric-icon">◌</div><div><p>Humidity</p><strong id="humidity">--</strong><small>%</small><span class="status-line">DHT22 relative humidity</span></div></article>
+</section>
+<section class="location-panel"><div class="location-copy"><div class="pin">●</div><div><p class="label">Location (GPS)</p><p class="coordinate">Lat: <strong id="latitude">Waiting for fix</strong></p><p class="coordinate">Lon: <strong id="longitude">--</strong></p><a id="mapsLink" class="map-button disabled" href="#" target="_blank" rel="noopener">Open in Maps ↗</a></div></div>
+<div class="map-placeholder"><div class="map-road road-one"></div><div class="map-road road-two"></div><div class="map-river"></div><div class="map-pin">●</div><span id="mapCaption">Waiting for GPS coordinates</span></div></section>
+<section class="bottom-row"><div class="status-panel"><span class="panel-label">SYSTEM STATUS</span><strong id="systemStatus">INITIALIZING</strong><p id="alertReason">No active alert.</p></div><div class="status-panel"><span class="panel-label">LAST UPDATE</span><strong id="lastUpdate">--:--:--</strong><p>Uptime <span id="uptime">0</span> seconds</p></div></section>
+<footer>Prototype monitoring interface · Not a medical device</footer></main><script src="/script.js"></script></body></html>

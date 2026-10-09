@@ -6,7 +6,7 @@
 - [ ] Check LCD and ensure ESP32 remains stable when Wi-Fi connects.
 
 ## Sensors
-- [ ] DHT22 readings update; disconnected/invalid sensor is not mistaken for a normal reading.
+- [ ] DHT11 readings update; disconnected/invalid sensor is not mistaken for a normal reading.
 - [ ] MAX30102 gives a stable tentative HR with still finger contact.
 - [ ] MPU6050 activity updates; test fall heuristic safely with controlled motions only.
 - [ ] GPS obtains an outdoor fix and dashboard hides stale coordinates.

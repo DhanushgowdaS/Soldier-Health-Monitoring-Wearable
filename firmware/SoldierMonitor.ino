@@ -23,7 +23,7 @@
 
 constexpr int DHT_PIN=4, DHT_TYPE=DHT22, GPS_RX=16, GPS_TX=17, BUZZER_PIN=25;
 constexpr int SDA_PIN=21, SCL_PIN=22;
-constexpr float AMBIENT_HIGH_C=38.0f, HUMIDITY_HIGH=85.0f;
+constexpr float AMBIENT_HIGH_C=29.0f, HUMIDITY_HIGH=85.0f; // Temporary DHT22 Telegram test threshold: ambient temperature > 29 C
 constexpr int HR_HIGH=130, HR_LOW=45;
 constexpr uint32_t SENSOR_MS=2000, LCD_MS=1000, WS_MS=1000, TG_COOLDOWN_MS=60000;
 

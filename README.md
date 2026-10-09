@@ -15,7 +15,7 @@ ESP32-based student prototype for wearable health/environment monitoring with a 
 - `firmware/SoldierMonitor.ino` — ESP32 firmware
 - `firmware/secrets.h.example` — credentials template
 - `data/index.html`, `data/style.css`, `data/script.js` — LittleFS dashboard
-- `docs/wiring.md`, `docs/architecture.md`, `docs/testing.md`
+- `docs/wiring.md`, `docs/architecture.md` (includes a Mermaid system architecture diagram), `docs/testing.md`
 
 ## Arduino IDE libraries
 Install SparkFun MAX3010x Pulse and Proximity Sensor Library, DHT sensor library by Adafruit, Adafruit Unified Sensor, Adafruit MPU6050, Adafruit BusIO, TinyGPSPlus, a compatible LiquidCrystal_I2C library, WebSockets by Markus Sattler, and ArduinoJson 7.

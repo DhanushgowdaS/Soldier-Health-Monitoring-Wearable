@@ -12,9 +12,13 @@ ESP32-based student prototype for wearable health/environment monitoring with a 
 > Educational prototype only. Not medically validated and must not be used as the sole basis for real-world emergency decisions.
 
 ## Structure
-- `firmware/SoldierMonitor.ino` — ESP32 firmware
-- `firmware/secrets.h.example` — credentials template
-- `data/index.html`, `data/style.css`, `data/script.js` — LittleFS dashboard
+- `firmware/SoldierMonitor.ino` — ESP32 firmware only (sensor reading, alerts, HTTP/WebSocket servers, LCD, buzzer)
+- `firmware/secrets.h.example` — credentials template; copy locally to `firmware/secrets.h`
+- `data/index.html` — dashboard structure and labels
+- `data/style.css` — dashboard appearance and responsive layout
+- `data/script.js` — WebSocket connection, `/api/data` fallback, and live UI updates
+
+**The website is not embedded as HTML/CSS/JavaScript inside the `.ino` sketch.** The ESP32 serves the separate files from LittleFS. Upload the sketch through Arduino IDE, then upload the *contents* of `data/` to LittleFS so `index.html`, `style.css`, and `script.js` are at the filesystem root.
 - `docs/wiring.md`, `docs/architecture.md` (includes a Mermaid system architecture diagram), `docs/testing.md`
 
 ## Arduino IDE libraries

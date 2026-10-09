@@ -392,14 +392,14 @@ void evaluateAlerts() {
     }
 
     monitor.alertReason = reason;
-    monitor.buzzerOn = !reason.isEmpty();
+    monitor.buzzerOn = reason.length() > 0;
     digitalWrite(BUZZER_PIN, monitor.buzzerOn ? HIGH : LOW);
 
     monitor.status = monitor.buzzerOn
         ? "WARNING"
         : (monitor.gpsFix ? "MONITORING" : "WAITING FOR GPS");
 
-    if (!reason.isEmpty() && reason != lastAlertReason) {
+    if (!reason.length() == 0 && reason != lastAlertReason) {
         sendTelegramAlert(reason);
         lastAlertReason = reason;
     } else if (reason.isEmpty() && !lastAlertReason.isEmpty()) {

@@ -138,7 +138,23 @@ void checkAlerts(){
  if(!reason.length() && lastAlert.length()){telegramAlert("NORMAL");lastAlert="";}
 }
 void updateLcd(){
- lcd.clear();lcd.setCursor(0,0);
+ static uint32_t lastPageSwitch=0;
+ static bool showIpPage=false;
+ if(millis()-lastPageSwitch>=5000){showIpPage=!showIpPage;lastPageSwitch=millis();}
+ lcd.clear();
+ if(showIpPage){
+  lcd.setCursor(0,0);
+  if(WiFi.status()==WL_CONNECTED){
+   lcd.print("Dashboard IP:");
+   lcd.setCursor(0,1);
+   lcd.print(WiFi.localIP().toString()); // IPv4 address fits typical 16x2 LCDs.
+  }else{
+   lcd.print("WiFi not connected");
+   lcd.setCursor(0,1);lcd.print("Check credentials");
+  }
+  return;
+ }
+ lcd.setCursor(0,0);
  lcd.print("HR:");if(valid(s.hr))lcd.print((int)s.hr);else lcd.print("--");
  lcd.print(" T:");if(valid(s.ambient))lcd.print(s.ambient,0);else lcd.print("--");
  lcd.setCursor(0,1);
@@ -162,8 +178,16 @@ void setup(){
  if(!LittleFS.begin(true))Serial.println("LittleFS mount failed");
  WiFi.mode(WIFI_STA);WiFi.begin(WIFI_SSID,WIFI_PASSWORD);
  uint32_t start=millis();while(WiFi.status()!=WL_CONNECTED&&millis()-start<15000){delay(250);Serial.print(".");}
- if(WiFi.status()==WL_CONNECTED){Serial.print("\nDashboard: http://");Serial.println(WiFi.localIP());}
- else Serial.println("\nWi-Fi not connected.");
+ if(WiFi.status()==WL_CONNECTED){
+  Serial.print("\nWi-Fi connected. ESP32 IP: ");Serial.println(WiFi.localIP());
+  Serial.print("Open dashboard: http://");Serial.println(WiFi.localIP());
+  lcd.clear();lcd.setCursor(0,0);lcd.print("WiFi Connected");
+  lcd.setCursor(0,1);lcd.print(WiFi.localIP().toString());
+ }else{
+  Serial.println("\nWi-Fi not connected. Dashboard IP unavailable.");
+  lcd.clear();lcd.setCursor(0,0);lcd.print("WiFi not connected");
+  lcd.setCursor(0,1);lcd.print("Check credentials");
+ }
  telegramEnabled=String(TELEGRAM_BOT_TOKEN).indexOf("REPLACE")<0 && String(TELEGRAM_CHAT_ID).indexOf("REPLACE")<0;
  server.on("/",HTTP_GET,[]{serveFile("/index.html","text/html");});
  server.on("/style.css",HTTP_GET,[]{serveFile("/style.css","text/css");});

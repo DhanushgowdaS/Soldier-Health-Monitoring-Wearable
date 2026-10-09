@@ -8,7 +8,7 @@ The reference architecture image belongs in this `docs/` folder, alongside this 
 flowchart LR
   subgraph Inputs["Sensors / Inputs"]
     HR["MAX30102\nHeart rate (SpO₂ not implemented yet)"]
-    DHT["DHT22\nAmbient temperature + humidity"]
+    DHT["DHT11\nAmbient temperature + humidity (DHT11 configured)"]
     IMU["MPU6050\nMotion / possible-fall heuristic"]
     GPS["NEO-6M GPS\nLatitude / longitude"]
   end
@@ -34,7 +34,7 @@ flowchart LR
 
 ## Data flow
 1. ESP32 reads MAX30102 optical samples for a tentative heart-rate estimate.
-2. DHT22 measures **ambient** temperature and relative humidity, not body temperature.
+2. DHT11 measures **ambient** temperature and relative humidity, not body temperature.
 3. MPU6050 acceleration/gyroscope data feeds a simple possible-fall heuristic.
 4. GPS UART provides coordinates only while a recent fix is available.
 5. LCD shows a compact local status.
@@ -43,7 +43,7 @@ flowchart LR
 
 ## Current prototype defaults
 - Heart rate > 130 BPM or < 45 BPM when a reading is valid.
-- DHT22 ambient temperature > **29 °C** (temporary threshold for the current DHT22 Telegram test).
+- DHT11 ambient temperature > **29 °C** (temporary threshold for the current DHT11 Telegram test).
 - Relative humidity > 85%.
 - Fall detection uses a simple impact/motion heuristic.
 

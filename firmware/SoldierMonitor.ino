@@ -2,7 +2,7 @@
  * Soldier Health Monitoring Wearable
  * Main ESP32 firmware
  *
- * Sensors: MAX30102, DHT22, MPU6050, UART GPS
+ * Sensors: MAX30102, DHT11 (select DHT22 in DHT_TYPE if using DHT22), MPU6050, UART GPS
  * Outputs: I2C LCD, buzzer, Telegram alerts
  * Web UI: separate files in /data, served from ESP32 LittleFS
  * Network: HTTP port 80, WebSocket port 81
@@ -29,7 +29,7 @@
 
 // ------------------------------ Pin assignments ------------------------------
 constexpr int DHT_PIN = 4;
-constexpr int DHT_TYPE = DHT22;
+constexpr int DHT_TYPE = DHT11;
 constexpr int GPS_RX_PIN = 16;
 constexpr int GPS_TX_PIN = 17;
 constexpr int BUZZER_PIN = 25;
@@ -38,7 +38,7 @@ constexpr int I2C_SCL_PIN = 22;
 constexpr uint8_t LCD_I2C_ADDRESS = 0x27;
 
 // ------------------------------ Thresholds/timing -----------------------------
-constexpr float AMBIENT_HIGH_C = 29.0f; // Temporary DHT22 test threshold
+constexpr float AMBIENT_HIGH_C = 29.0f; // Temporary ambient-temperature test threshold
 constexpr float HUMIDITY_HIGH_PERCENT = 85.0f;
 constexpr int HEART_RATE_HIGH_BPM = 130;
 constexpr int HEART_RATE_LOW_BPM = 45;
@@ -155,6 +155,12 @@ String buildTelemetryJson() {
     String json;
     serializeJson(document, json);
     return json;
+}
+
+void broadcastTelemetry() {
+    // WebSocketsServer expects a mutable String reference in this library version.
+    String telemetry = buildTelemetryJson();
+    webSocket.broadcastTXT(telemetry);
 }
 
 void handleTelemetryRequest() {
@@ -399,7 +405,7 @@ void evaluateAlerts() {
         ? "WARNING"
         : (monitor.gpsFix ? "MONITORING" : "WAITING FOR GPS");
 
-    if (!reason.length() == 0 && reason != lastAlertReason) {
+    if (reason.length() > 0 && reason != lastAlertReason) {
         sendTelegramAlert(reason);
         lastAlertReason = reason;
     } else if (reason.isEmpty() && !lastAlertReason.isEmpty()) {
@@ -522,7 +528,7 @@ void configureWebServer() {
     webSocket.begin();
     webSocket.onEvent([](uint8_t, WStype_t type, uint8_t*, size_t) {
         if (type == WStype_CONNECTED) {
-            webSocket.broadcastTXT(buildTelemetryJson());
+            broadcastTelemetry();
         }
     });
 
@@ -609,6 +615,6 @@ void loop() {
 
     if (now - lastWebSocketBroadcastMs >= WEBSOCKET_INTERVAL_MS) {
         lastWebSocketBroadcastMs = now;
-        webSocket.broadcastTXT(buildTelemetryJson());
+        broadcastTelemetry();
     }
 }

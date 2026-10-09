@@ -1,0 +1,10 @@
+firmware/secrets.h
+secrets.h
+*.elf
+*.bin
+*.hex
+*.map
+build/
+.pio/
+.vscode/
+.DS_Store

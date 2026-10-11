@@ -91,6 +91,8 @@ uint32_t lastTelegramSuccessMs = 0;
 uint32_t impactDetectedMs = 0;
 uint32_t lastLcdPageSwitchMs = 0;
 uint32_t lastGpsDiagnosticMs = 0;
+uint32_t lastPulseDiagnosticMs = 0;
+long lastInfraredValue = 0;
 
 bool fallImpactPending = false;
 bool showIpOnLcd = false;
@@ -278,6 +280,8 @@ void readHeartRate() {
     }
 
     const long infraredValue = pulseSensor.getIR();
+    lastInfraredValue = infraredValue;
+
     if (infraredValue < 50000) {
         monitor.heartRateBpm = NAN;
         return;
@@ -595,7 +599,8 @@ void setup() {
 
     monitor.pulseSensorAvailable = pulseSensor.begin(Wire, I2C_SPEED_FAST);
     if (monitor.pulseSensorAvailable) {
-        pulseSensor.setup();
+        // Match the settings used by the working standalone MAX30102 test.
+        pulseSensor.setup(0x1F, 4, 2, 400, 411, 4096);
         pulseSensor.setPulseAmplitudeRed(0x0A);
         pulseSensor.setPulseAmplitudeGreen(0);
         Serial.println("MAX30102 detected.");
@@ -630,6 +635,26 @@ void loop() {
     readGps();
     printGpsDiagnostic();
 
+    // Sample MAX30102 continuously: beat detection can miss pulses if called
+    // only once every SENSOR_INTERVAL_MS (2 seconds).
+    readHeartRate();
+
+    if (millis() - lastPulseDiagnosticMs >= 1000) {
+        lastPulseDiagnosticMs = millis();
+        if (!monitor.pulseSensorAvailable) {
+            Serial.println("MAX30102 status: NOT DETECTED");
+        } else if (lastInfraredValue < 50000) {
+            Serial.printf("MAX30102 status: detected, no finger / low IR (IR=%ld)\n",
+                          lastInfraredValue);
+        } else if (isValidReading(monitor.heartRateBpm)) {
+            Serial.printf("MAX30102 status: IR=%ld, Heart rate=%.0f BPM\n",
+                          lastInfraredValue, monitor.heartRateBpm);
+        } else {
+            Serial.printf("MAX30102 status: measuring beat, IR=%ld\n",
+                          lastInfraredValue);
+        }
+    }
+
     const uint32_t now = millis();
 
     if (now - lastSensorReadMs >= SENSOR_INTERVAL_MS) {
@@ -638,7 +663,6 @@ void loop() {
         monitor.ambientTemperatureC = dht.readTemperature();
         monitor.humidityPercent = dht.readHumidity();
 
-        readHeartRate();
         readMotionSensor();
         evaluateAlerts();
     }

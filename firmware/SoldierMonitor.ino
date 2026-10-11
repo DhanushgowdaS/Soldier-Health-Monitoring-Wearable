@@ -25,6 +25,7 @@
 #include <Adafruit_Sensor.h>
 #include <MAX30105.h>
 #include "heartRate.h"
+#include "spo2_algorithm.h"
 #include "secrets.h"
 
 // ------------------------------ Pin assignments ------------------------------
@@ -63,6 +64,7 @@ MAX30105 pulseSensor;
 // ------------------------------ Shared state ----------------------------------
 struct MonitorState {
     float heartRateBpm = NAN;
+    float spo2Percent = NAN;
     float ambientTemperatureC = NAN;
     float humidityPercent = NAN;
     double latitude = 0.0;
@@ -81,6 +83,10 @@ struct MonitorState {
 
 MonitorState monitor;
 float recentHeartRates[4] = {0, 0, 0, 0};
+uint32_t irBuffer[BUFFER_SIZE] = {0};
+uint32_t redBuffer[BUFFER_SIZE] = {0};
+int32_t spo2SampleCount = 0;
+uint16_t samplesSinceSpo2Calculation = 0;
 uint8_t heartRateIndex = 0;
 
 uint32_t lastBeatMs = 0;
@@ -136,9 +142,11 @@ String buildTelemetryJson() {
         document["humidity"] = nullptr;
     }
 
-    // SpO2 remains unavailable until a suitable algorithm is integrated
-    // and the readings have been validated against a reference device.
-    document["spo2"] = nullptr;
+    if (isValidReading(monitor.spo2Percent)) {
+        document["spo2"] = monitor.spo2Percent;
+    } else {
+        document["spo2"] = nullptr;
+    }
     document["gpsFix"] = monitor.gpsFix;
 
     if (monitor.gpsFix) {
@@ -228,7 +236,10 @@ void sendTelegramAlert(const String& reason) {
         ? String(monitor.heartRateBpm, 0) + " BPM"
         : String("Unavailable");
 
-    message += "\n🫁 <b>SpO₂:</b> Unavailable (algorithm not implemented)";
+    message += "\\n🫁 <b>SpO₂:</b> ";
+    message += isValidReading(monitor.spo2Percent)
+        ? String(monitor.spo2Percent, 0) + " %"
+        : String("Unavailable (waiting for valid signal)");
     message += "\n🌡️ <b>Ambient Temperature:</b> ";
     message += isValidReading(monitor.ambientTemperatureC)
         ? String(monitor.ambientTemperatureC, 1) + " °C"
@@ -275,47 +286,69 @@ void sendTelegramAlert(const String& reason) {
 
 // ================================= Sensors ====================================
 void readHeartRate() {
-    if (!monitor.pulseSensorAvailable) {
-        return;
-    }
+    if (!monitor.pulseSensorAvailable) return;
 
-    const long infraredValue = pulseSensor.getIR();
-    lastInfraredValue = infraredValue;
+    // Drain available FIFO samples so both red and IR channels are captured.
+    pulseSensor.check();
+    while (pulseSensor.available()) {
+        const uint32_t infraredValue = pulseSensor.getIR();
+        const uint32_t redValue = pulseSensor.getRed();
+        pulseSensor.nextSample();
+        lastInfraredValue = static_cast<long>(infraredValue);
 
-    if (infraredValue < 50000) {
-        monitor.heartRateBpm = NAN;
-        return;
-    }
-
-    if (!checkForBeat(infraredValue)) {
-        return;
-    }
-
-    const uint32_t now = millis();
-    if (lastBeatMs != 0) {
-        const float bpm = 60000.0f / (now - lastBeatMs);
-
-        if (bpm >= 35 && bpm <= 220) {
-            recentHeartRates[heartRateIndex++ % 4] = bpm;
+        if (infraredValue < 50000) {
+            monitor.heartRateBpm = NAN;
+            monitor.spo2Percent = NAN;
+            spo2SampleCount = 0;
+            samplesSinceSpo2Calculation = 0;
+            lastBeatMs = 0;
+            continue;
         }
 
-        float sum = 0;
-        int count = 0;
-        for (float reading : recentHeartRates) {
-            if (reading > 0) {
-                sum += reading;
-                count++;
+        // Keep the existing IR-based heart-rate calculation.
+        if (checkForBeat(static_cast<long>(infraredValue))) {
+            const uint32_t now = millis();
+            if (lastBeatMs != 0) {
+                const float bpm = 60000.0f / (now - lastBeatMs);
+                if (bpm >= 35 && bpm <= 220) recentHeartRates[heartRateIndex++ % 4] = bpm;
+                float sum = 0;
+                int count = 0;
+                for (float reading : recentHeartRates) {
+                    if (reading > 0) { sum += reading; count++; }
+                }
+                if (count > 0) monitor.heartRateBpm = sum / count;
+            }
+            lastBeatMs = now;
+        }
+
+        if (spo2SampleCount < BUFFER_SIZE) {
+            irBuffer[spo2SampleCount] = infraredValue;
+            redBuffer[spo2SampleCount] = redValue;
+            spo2SampleCount++;
+        } else {
+            memmove(irBuffer, irBuffer + 1, (BUFFER_SIZE - 1) * sizeof(irBuffer[0]));
+            memmove(redBuffer, redBuffer + 1, (BUFFER_SIZE - 1) * sizeof(redBuffer[0]));
+            irBuffer[BUFFER_SIZE - 1] = infraredValue;
+            redBuffer[BUFFER_SIZE - 1] = redValue;
+        }
+
+        if (spo2SampleCount >= BUFFER_SIZE && ++samplesSinceSpo2Calculation >= 25) {
+            samplesSinceSpo2Calculation = 0;
+            int32_t calculatedSpO2 = -1, calculatedHeartRate = -1;
+            int8_t spo2Valid = 0, heartRateValid = 0;
+            maxim_heart_rate_and_oxygen_saturation(
+                irBuffer, BUFFER_SIZE, redBuffer,
+                &calculatedSpO2, &spo2Valid,
+                &calculatedHeartRate, &heartRateValid);
+
+            if (spo2Valid && calculatedSpO2 >= 70 && calculatedSpO2 <= 100) {
+                monitor.spo2Percent = static_cast<float>(calculatedSpO2);
+            } else {
+                monitor.spo2Percent = NAN;
             }
         }
-
-        if (count > 0) {
-            monitor.heartRateBpm = sum / count;
-        }
     }
-
-    lastBeatMs = now;
 }
-
 void readGps() {
     while (gpsSerial.available() > 0) {
         const char c = static_cast<char>(gpsSerial.read());

@@ -53,6 +53,8 @@ WebServer server(80);
 WebSocketsServer webSocket(81);
 HardwareSerial gpsSerial(2);
 TinyGPSPlus gps;
+TinyGPSCustom gpsView(gps, "GPGSV", 3);
+TinyGPSCustom beidouView(gps, "BDGSV", 3);
 DHT dht(DHT_PIN, DHT_TYPE);
 LiquidCrystal_I2C lcd(LCD_I2C_ADDRESS, 16, 2);
 Adafruit_MPU6050 mpu;
@@ -88,6 +90,7 @@ uint32_t lastWebSocketBroadcastMs = 0;
 uint32_t lastTelegramSuccessMs = 0;
 uint32_t impactDetectedMs = 0;
 uint32_t lastLcdPageSwitchMs = 0;
+uint32_t lastGpsDiagnosticMs = 0;
 
 bool fallImpactPending = false;
 bool showIpOnLcd = false;
@@ -319,6 +322,29 @@ void readGps() {
     if (monitor.gpsFix) {
         monitor.latitude = gps.location.lat();
         monitor.longitude = gps.location.lng();
+    }
+}
+
+void printGpsDiagnostic() {
+    if (millis() - lastGpsDiagnosticMs < 2000) {
+        return;
+    }
+    lastGpsDiagnosticMs = millis();
+
+    Serial.printf("GPS check | Used satellites: %u | GPS view: %s | BeiDou view: %s | ",
+                  gps.satellites.isValid() ? gps.satellites.value() : 0,
+                  gpsView.value(),
+                  beidouView.value());
+
+    if (monitor.gpsFix) {
+        Serial.printf("FIX | Lat=%.6f | Lng=%.6f | Location age=%lu ms\n",
+                      monitor.latitude,
+                      monitor.longitude,
+                      gps.location.age());
+    } else {
+        Serial.printf("NO FIX | Location valid=%s | Satellites valid=%s\n",
+                      gps.location.isValid() ? "yes" : "no",
+                      gps.satellites.isValid() ? "yes" : "no");
     }
 }
 
@@ -594,6 +620,7 @@ void loop() {
     server.handleClient();
     webSocket.loop();
     readGps();
+    printGpsDiagnostic();
 
     const uint32_t now = millis();
 

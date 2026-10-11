@@ -345,12 +345,12 @@ void printGpsDiagnostic() {
                   gps.satellites.isValid() ? gps.satellites.value() : 0);
 
     if (monitor.gpsFix) {
-        Serial.printf("FIX | Lat=%.6f | Lng=%.6f | Location age=%lu ms\\n",
+        Serial.printf("FIX | Lat=%.6f | Lng=%.6f | Location age=%lu ms\n",
                       monitor.latitude,
                       monitor.longitude,
                       static_cast<unsigned long>(gps.location.age()));
     } else {
-        Serial.printf("NO FIX | Location valid=%s | Satellites valid=%s\\n",
+        Serial.printf("NO FIX | Location valid=%s | Satellites valid=%s\n",
                       gps.location.isValid() ? "yes" : "no",
                       gps.location.isValid() ? "yes" : "no");
     }

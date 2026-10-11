@@ -158,7 +158,10 @@ String buildTelemetryJson() {
     }
 
     document["mapsUrl"] = getGoogleMapsUrl();
-    document["activity"] = monitor.activity;
+    // Show sensor measurement state while a finger is detected on MAX30102.
+    document["activity"] = (monitor.pulseSensorAvailable && lastInfraredValue >= 50000)
+        ? "Measuring"
+        : monitor.activity;
     document["fallDetected"] = monitor.possibleFall;
     document["buzzerOn"] = monitor.buzzerOn;
     document["status"] = monitor.status;

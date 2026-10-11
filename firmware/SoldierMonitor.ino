@@ -41,8 +41,9 @@ constexpr uint8_t LCD_I2C_ADDRESS = 0x27;
 // ------------------------------ Thresholds/timing -----------------------------
 constexpr float AMBIENT_HIGH_C = 30.0f; // Ambient-temperature alert threshold
 constexpr float HUMIDITY_HIGH_PERCENT = 85.0f;
-constexpr int HEART_RATE_HIGH_BPM = 130;
-constexpr int HEART_RATE_LOW_BPM = 45;
+constexpr int HEART_RATE_HIGH_BPM = 100; // Typical adult resting upper limit
+constexpr int HEART_RATE_LOW_BPM = 60;  // Typical adult resting lower limit
+constexpr float SPO2_LOW_PERCENT = 95.0f; // Typical healthy adult range is usually 95-100%
 constexpr uint32_t SENSOR_INTERVAL_MS = 2000;
 constexpr uint32_t LCD_INTERVAL_MS = 1000;
 constexpr uint32_t WEBSOCKET_INTERVAL_MS = 1000;
@@ -99,6 +100,7 @@ uint32_t lastLcdPageSwitchMs = 0;
 uint32_t lastGpsDiagnosticMs = 0;
 uint32_t lastPulseDiagnosticMs = 0;
 long lastInfraredValue = 0;
+uint32_t lastFingerSignalMs = 0;
 
 bool fallImpactPending = false;
 bool showIpOnLcd = false;
@@ -158,10 +160,10 @@ String buildTelemetryJson() {
     }
 
     document["mapsUrl"] = getGoogleMapsUrl();
-    // Show sensor measurement state while a finger is detected on MAX30102.
-    document["activity"] = (monitor.pulseSensorAvailable && lastInfraredValue >= 50000)
-        ? "Measuring"
-        : monitor.activity;
+    // Activity card reflects MAX30102 finger-measurement state as requested.
+    const bool fingerDetected = monitor.pulseSensorAvailable &&
+        lastInfraredValue >= 50000 && millis() - lastFingerSignalMs < 2000;
+    document["activity"] = fingerDetected ? "Measuring" : "Unknown";
     document["fallDetected"] = monitor.possibleFall;
     document["buzzerOn"] = monitor.buzzerOn;
     document["status"] = monitor.status;
@@ -196,15 +198,15 @@ void serveLittleFsFile(const char* path, const char* contentType) {
 }
 
 // ================================ Telegram ====================================
-void sendTelegramAlert(const String& reason) {
+bool sendTelegramAlert(const String& reason) {
     if (!telegramConfigured || WiFi.status() != WL_CONNECTED) {
         Serial.println("Telegram skipped: Wi-Fi or credentials unavailable.");
-        return;
+        return false;
     }
 
-    if (millis() - lastTelegramSuccessMs < TELEGRAM_COOLDOWN_MS) {
+    if (lastTelegramSuccessMs != 0 && millis() - lastTelegramSuccessMs < TELEGRAM_COOLDOWN_MS) {
         Serial.println("Telegram skipped: cooldown active.");
-        return;
+        return false;
     }
 
     WiFiClientSecure tlsClient;
@@ -218,7 +220,7 @@ void sendTelegramAlert(const String& reason) {
 
     if (!http.begin(tlsClient, endpoint)) {
         Serial.println("Telegram error: could not start HTTPS request.");
-        return;
+        return false;
     }
 
     http.addHeader("Content-Type", "application/json");
@@ -284,7 +286,10 @@ void sendTelegramAlert(const String& reason) {
     if (httpStatus >= 200 && httpStatus < 300) {
         lastTelegramSuccessMs = millis();
         Serial.println("Telegram message sent.");
+        return true;
     }
+    Serial.printf("Telegram send failed; HTTP status: %d\\n", httpStatus);
+    return false;
 }
 
 // ================================= Sensors ====================================
@@ -298,6 +303,10 @@ void readHeartRate() {
         const uint32_t redValue = pulseSensor.getRed();
         pulseSensor.nextSample();
         lastInfraredValue = static_cast<long>(infraredValue);
+
+        if (infraredValue >= 50000) {
+            lastFingerSignalMs = millis();
+        }
 
         if (infraredValue < 50000) {
             monitor.heartRateBpm = NAN;
@@ -449,12 +458,17 @@ void evaluateAlerts() {
 
     if (isValidReading(monitor.heartRateBpm) &&
         monitor.heartRateBpm > HEART_RATE_HIGH_BPM) {
-        reason += "High heart rate; ";
+        reason += "High resting heart rate; ";
     }
 
     if (isValidReading(monitor.heartRateBpm) &&
         monitor.heartRateBpm < HEART_RATE_LOW_BPM) {
-        reason += "Low heart rate; ";
+        reason += "Low resting heart rate; ";
+    }
+
+    if (isValidReading(monitor.spo2Percent) &&
+        monitor.spo2Percent < SPO2_LOW_PERCENT) {
+        reason += "Low SpO2; ";
     }
 
     if (isValidReading(monitor.ambientTemperatureC) &&
@@ -480,11 +494,13 @@ void evaluateAlerts() {
         : (monitor.gpsFix ? "MONITORING" : "WAITING FOR GPS");
 
     if (reason.length() > 0 && reason != lastAlertReason) {
-        sendTelegramAlert(reason);
-        lastAlertReason = reason;
+        if (sendTelegramAlert(reason)) {
+            lastAlertReason = reason;
+        }
     } else if (reason.isEmpty() && !lastAlertReason.isEmpty()) {
-        sendTelegramAlert("NORMAL");
-        lastAlertReason = "";
+        if (sendTelegramAlert("NORMAL")) {
+            lastAlertReason = "";
+        }
     }
 }
 

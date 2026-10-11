@@ -288,7 +288,7 @@ bool sendTelegramAlert(const String& reason) {
         Serial.println("Telegram message sent.");
         return true;
     }
-    Serial.printf("Telegram send failed; HTTP status: %d\\n", httpStatus);
+    Serial.printf("Telegram send failed; HTTP status: %d\n", httpStatus);
     return false;
 }
 

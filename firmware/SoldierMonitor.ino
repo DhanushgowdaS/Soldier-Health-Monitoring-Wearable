@@ -313,8 +313,9 @@ void readHeartRate() {
 }
 
 void readGps() {
-    while (gpsSerial.available()) {
-        gps.encode(gpsSerial.read());
+    while (gpsSerial.available() > 0) {
+        const char c = static_cast<char>(gpsSerial.read());
+        gps.encode(c);
     }
 
     monitor.gpsFix = gps.location.isValid() && gps.location.age() < 5000;
@@ -331,20 +332,27 @@ void printGpsDiagnostic() {
     }
     lastGpsDiagnosticMs = millis();
 
-    Serial.printf("GPS check | Used satellites: %u | GPS view: %s | BeiDou view: %s | ",
-                  gps.satellites.isValid() ? gps.satellites.value() : 0,
-                  gpsView.value(),
-                  beidouView.value());
+    static uint32_t lastCharsReported = 0;
+    const uint32_t charsReceived = gps.charsProcessed();
+    const uint32_t charsThisInterval = charsReceived - lastCharsReported;
+    lastCharsReported = charsReceived;
+
+    Serial.printf("GPS check | UART chars total: %lu | chars/2s: %lu | checksum errors: %lu | valid sentences: %lu | Used satellites: %u | ",
+                  static_cast<unsigned long>(charsReceived),
+                  static_cast<unsigned long>(charsThisInterval),
+                  static_cast<unsigned long>(gps.failedChecksum()),
+                  static_cast<unsigned long>(gps.passedChecksum()),
+                  gps.satellites.isValid() ? gps.satellites.value() : 0);
 
     if (monitor.gpsFix) {
-        Serial.printf("FIX | Lat=%.6f | Lng=%.6f | Location age=%lu ms\n",
+        Serial.printf("FIX | Lat=%.6f | Lng=%.6f | Location age=%lu ms\\n",
                       monitor.latitude,
                       monitor.longitude,
-                      gps.location.age());
+                      static_cast<unsigned long>(gps.location.age()));
     } else {
-        Serial.printf("NO FIX | Location valid=%s | Satellites valid=%s\n",
+        Serial.printf("NO FIX | Location valid=%s | Satellites valid=%s\\n",
                       gps.location.isValid() ? "yes" : "no",
-                      gps.satellites.isValid() ? "yes" : "no");
+                      gps.location.isValid() ? "yes" : "no");
     }
 }
 

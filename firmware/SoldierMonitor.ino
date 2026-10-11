@@ -38,7 +38,7 @@ constexpr int I2C_SCL_PIN = 22;
 constexpr uint8_t LCD_I2C_ADDRESS = 0x27;
 
 // ------------------------------ Thresholds/timing -----------------------------
-constexpr float AMBIENT_HIGH_C = 29.0f; // Temporary ambient-temperature test threshold
+constexpr float AMBIENT_HIGH_C = 30.0f; // Ambient-temperature alert threshold
 constexpr float HUMIDITY_HIGH_PERCENT = 85.0f;
 constexpr int HEART_RATE_HIGH_BPM = 130;
 constexpr int HEART_RATE_LOW_BPM = 45;

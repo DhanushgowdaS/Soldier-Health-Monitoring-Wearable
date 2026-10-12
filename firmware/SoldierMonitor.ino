@@ -222,8 +222,8 @@ bool sendTelegramAlert(const String& reason) {
     String message;
 
     if (normalStatus) {
-        message = "🟢 <b>SOLDIER STATUS: NORMAL</b>\n"
-                  "🟢 All monitored alert conditions are clear.";
+        message = "🟢 <b>SOLDIER STATUS: NO ACTIVE ALERTS</b>\n"
+                  "🟢 All available readings are within configured limits.";
     } else {
         message = "🚨 <b>SOLDIER EMERGENCY ALERT</b>\n"
                   "🔴 <b>Fault:</b> " + reason;

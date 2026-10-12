@@ -94,6 +94,11 @@ uint32_t lastSensorReadMs = 0;
 uint32_t lastLcdUpdateMs = 0;
 uint32_t lastWebSocketBroadcastMs = 0;
 uint32_t impactDetectedMs = 0;
+uint32_t lastMotionSampleMs = 0;
+uint32_t fallStillStartMs = 0;
+float gyroXOffsetRadS = 0.0f;
+float gyroYOffsetRadS = 0.0f;
+float gyroZOffsetRadS = 0.0f;
 uint32_t lastLcdPageSwitchMs = 0;
 uint32_t lastGpsDiagnosticMs = 0;
 uint32_t lastPulseDiagnosticMs = 0;
@@ -101,6 +106,7 @@ long lastInfraredValue = 0;
 uint32_t lastFingerSignalMs = 0;
 
 bool fallImpactPending = false;
+bool fallCandidateReported = false;
 bool showIpOnLcd = false;
 bool telegramConfigured = false;
 String lastAlertReason = "";
@@ -410,10 +416,39 @@ void printGpsDiagnostic() {
     }
 }
 
-void readMotionSensor() {
-    if (!monitor.mpuAvailable) {
-        return;
+// Calibrate gyro bias while the MPU6050 is completely still at startup.
+void calibrateMotionGyro() {
+    if (!monitor.mpuAvailable) return;
+
+    Serial.println("Keep MPU6050 still: calibrating gyro...");
+    const int samples = 300;
+    double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+
+    for (int i = 0; i < samples; i++) {
+        sensors_event_t acceleration;
+        sensors_event_t gyroscope;
+        sensors_event_t temperature;
+        mpu.getEvent(&acceleration, &gyroscope, &temperature);
+        sumX += gyroscope.gyro.x;
+        sumY += gyroscope.gyro.y;
+        sumZ += gyroscope.gyro.z;
+        delay(5);
     }
+
+    gyroXOffsetRadS = sumX / samples;
+    gyroYOffsetRadS = sumY / samples;
+    gyroZOffsetRadS = sumZ / samples;
+    Serial.println("MPU6050 gyro calibration complete.");
+}
+
+// Sample every 20 ms. Ordinary axis changes indicate movement only.
+// A possible fall requires an impact/freefall-like event followed by stillness.
+void readMotionSensor() {
+    if (!monitor.mpuAvailable) return;
+
+    const uint32_t now = millis();
+    if (now - lastMotionSampleMs < 20) return;
+    lastMotionSampleMs = now;
 
     sensors_event_t acceleration;
     sensors_event_t gyroscope;
@@ -425,35 +460,63 @@ void readMotionSensor() {
     const float az = acceleration.acceleration.z / 9.80665f;
     const float accelerationMagnitude = sqrtf(ax * ax + ay * ay + az * az);
 
-    const float gx = gyroscope.gyro.x;
-    const float gy = gyroscope.gyro.y;
-    const float gz = gyroscope.gyro.z;
-    const float gyroMagnitude = sqrtf(gx * gx + gy * gy + gz * gz);
+    const float gx = gyroscope.gyro.x - gyroXOffsetRadS;
+    const float gy = gyroscope.gyro.y - gyroYOffsetRadS;
+    const float gz = gyroscope.gyro.z - gyroZOffsetRadS;
+    const float gyroMagnitudeDps =
+        sqrtf(gx * gx + gy * gy + gz * gz) * 57.29578f;
 
-    if (accelerationMagnitude > 2.5f) {
+    constexpr float IMPACT_THRESHOLD_G = 2.5f;
+    constexpr float FREEFALL_THRESHOLD_G = 0.45f;
+    constexpr float STILL_ACCEL_TOLERANCE_G = 0.25f;
+    constexpr float STILL_GYRO_THRESHOLD_DPS = 20.0f;
+    constexpr uint32_t STILL_TIME_MS = 1500;
+    constexpr uint32_t EVENT_TIMEOUT_MS = 5000;
+
+    const bool suddenEvent =
+        accelerationMagnitude >= IMPACT_THRESHOLD_G ||
+        accelerationMagnitude <= FREEFALL_THRESHOLD_G;
+
+    const bool appearsStill =
+        fabsf(accelerationMagnitude - 1.0f) <= STILL_ACCEL_TOLERANCE_G &&
+        gyroMagnitudeDps <= STILL_GYRO_THRESHOLD_DPS;
+
+    if (suddenEvent && !fallImpactPending && !monitor.possibleFall) {
         fallImpactPending = true;
-        impactDetectedMs = millis();
+        fallCandidateReported = false;
+        impactDetectedMs = now;
+        fallStillStartMs = 0;
+        Serial.println("MPU6050: sudden event; checking for possible fall.");
     }
 
-    // Demonstration heuristic only; not validated fall detection.
-    if (fallImpactPending &&
-        millis() - impactDetectedMs > 1500 &&
-        accelerationMagnitude < 0.45f &&
-        gyroMagnitude < 0.35f) {
-        monitor.possibleFall = true;
-        monitor.activity = "Possible fall";
-        fallImpactPending = false;
-    }
+    if (fallImpactPending) {
+        if (appearsStill) {
+            if (fallStillStartMs == 0) fallStillStartMs = now;
 
-    if (fallImpactPending && millis() - impactDetectedMs > 10000) {
-        fallImpactPending = false;
+            if (!fallCandidateReported &&
+                now - fallStillStartMs >= STILL_TIME_MS) {
+                monitor.possibleFall = true;
+                monitor.activity = "Possible fall";
+                fallCandidateReported = true;
+                fallImpactPending = false;
+                Serial.println("MPU6050: POSSIBLE FALL detected.");
+            }
+        } else {
+            fallStillStartMs = 0;
+        }
+
+        if (fallImpactPending && now - impactDetectedMs >= EVENT_TIMEOUT_MS) {
+            fallImpactPending = false;
+            fallStillStartMs = 0;
+            Serial.println("MPU6050: event window ended; monitoring continues.");
+        }
     }
 
     if (!monitor.possibleFall) {
-        monitor.activity =
-            (accelerationMagnitude > 1.2f || gyroMagnitude > 0.6f)
-                ? "Active"
-                : "Stationary";
+        const bool moving =
+            fabsf(accelerationMagnitude - 1.0f) > STILL_ACCEL_TOLERANCE_G ||
+            gyroMagnitudeDps > STILL_GYRO_THRESHOLD_DPS;
+        monitor.activity = moving ? "Movement detected" : "Stationary";
     }
 }
 
@@ -657,6 +720,7 @@ void setup() {
         mpu.setGyroRange(MPU6050_RANGE_500_DEG);
         mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
         Serial.println("MPU6050 detected.");
+        calibrateMotionGyro();
     } else {
         Serial.println("MPU6050 not detected.");
     }
@@ -721,13 +785,16 @@ void loop() {
 
     const uint32_t now = millis();
 
+    // Sample the MPU6050 frequently so brief sudden events are less likely
+    // to be missed; environmental sensors retain their slower interval.
+    readMotionSensor();
+
     if (now - lastSensorReadMs >= SENSOR_INTERVAL_MS) {
         lastSensorReadMs = now;
 
         monitor.ambientTemperatureC = dht.readTemperature();
         monitor.humidityPercent = dht.readHumidity();
 
-        readMotionSensor();
         evaluateAlerts();
     }
 

@@ -529,7 +529,9 @@ void readMotionSensor() {
     constexpr uint32_t STARTUP_GUARD_MS = 8000;
     constexpr uint32_t STILL_TIME_MS = 2000;
     constexpr uint32_t EVENT_TIMEOUT_MS = 5000;
+    constexpr uint32_t FALL_ALERT_HOLD_MS = 10000;
     static const uint32_t motionMonitoringStartedMs = millis();
+    static uint32_t fallAlertStartedMs = 0;
 
     const bool suddenEvent =
         (now - motionMonitoringStartedMs >= STARTUP_GUARD_MS) &&
@@ -544,20 +546,19 @@ void readMotionSensor() {
         fallCandidateReported = false;
         impactDetectedMs = now;
         fallStillStartMs = 0;
-        Serial.println("MPU6050: sudden event; checking for possible fall.");
+        Serial.println("IMU: sudden impact; checking for possible fall.");
     }
 
     if (fallImpactPending) {
         if (appearsStill) {
             if (fallStillStartMs == 0) fallStillStartMs = now;
 
-            if (!fallCandidateReported &&
-                now - fallStillStartMs >= STILL_TIME_MS) {
+            if (now - fallStillStartMs >= STILL_TIME_MS) {
                 monitor.possibleFall = true;
-                monitor.activity = "Possible fall";
+                fallAlertStartedMs = now;
                 fallCandidateReported = true;
                 fallImpactPending = false;
-                Serial.println("MPU6050: POSSIBLE FALL detected.");
+                Serial.println("IMU: POSSIBLE FALL alert started.");
             }
         } else {
             fallStillStartMs = 0;
@@ -566,14 +567,28 @@ void readMotionSensor() {
         if (fallImpactPending && now - impactDetectedMs >= EVENT_TIMEOUT_MS) {
             fallImpactPending = false;
             fallStillStartMs = 0;
-            Serial.println("MPU6050: event window ended; monitoring continues.");
+            Serial.println("IMU: event expired; no fall alert.");
         }
     }
 
-    if (!monitor.possibleFall) {
-        const bool moving =
-            fabsf(accelerationMagnitude - 1.0f) > STILL_ACCEL_TOLERANCE_G ||
-            gyroMagnitudeDps > STILL_GYRO_THRESHOLD_DPS;
+    // Automatically clear the heuristic alert after 10 seconds.
+    // This is a demo reset, not proof that a wearer is safe.
+    if (monitor.possibleFall && fallAlertStartedMs != 0 &&
+        now - fallAlertStartedMs >= FALL_ALERT_HOLD_MS) {
+        monitor.possibleFall = false;
+        fallAlertStartedMs = 0;
+        Serial.println("IMU: possible-fall alert cleared; monitoring resumed.");
+    }
+
+    const bool moving =
+        fabsf(accelerationMagnitude - 1.0f) > STILL_ACCEL_TOLERANCE_G ||
+        gyroMagnitudeDps > STILL_GYRO_THRESHOLD_DPS;
+
+    if (monitor.possibleFall) {
+        monitor.activity = "Possible fall";
+    } else if (fallImpactPending) {
+        monitor.activity = "Checking event";
+    } else {
         monitor.activity = moving ? "Movement detected" : "Stationary";
     }
 }

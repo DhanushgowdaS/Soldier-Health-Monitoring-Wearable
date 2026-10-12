@@ -1,22 +1,40 @@
 # Wiring Guide
 
-Pin assignments for `firmware/SoldierMonitor.ino`; verify every breakout before powering.
+This table matches the pin assignments in `firmware/SoldierMonitor.ino` for a classic ESP32 DevKit. Confirm the labels and supply requirements on your exact sensor breakout before wiring.
 
-| Module | Signal | ESP32 |
-|---|---|---|
-| Shared I2C | SDA | GPIO 21 |
-| Shared I2C | SCL | GPIO 22 |
-| DHT22 | DATA | GPIO 4 |
-| GPS | TX -> ESP RX2 | GPIO 16 |
-| GPS | RX <- ESP TX2 (optional) | GPIO 17 |
-| Active buzzer driver input | IN | GPIO 25 |
-| MAX30102 | SDA/SCL | GPIO 21/22 |
-| MPU6050 | SDA/SCL | GPIO 21/22 |
-| I2C LCD | SDA/SCL | GPIO 21/22 |
+## Pin map
 
-- Join grounds. ESP32 GPIO is not 5 V tolerant.
-- MAX30102 and MPU6050 breakouts should use a supply compatible with their board, typically 3.3 V.
-- Some LCD backpacks pull I2C up to 5 V. Use a bidirectional level shifter or verified 3.3 V pull-ups before attaching to ESP32.
-- Use a stable 3.3 V regulator capable of Wi-Fi current peaks. Do not power a high-current buzzer directly from GPIO; use a transistor/MOSFET driver if required.
-- Typical I2C addresses: MAX30102 0x57, MPU6050 0x68, LCD 0x27 or 0x3F.
-- DHT22 measures ambient temperature/humidity, not body temperature.
+| Module | Signal | ESP32 connection | Notes |
+|---|---|---|---|
+| Shared I²C bus | SDA | GPIO 21 | LCD, MAX30102, motion module |
+| Shared I²C bus | SCL | GPIO 22 | LCD, MAX30102, motion module |
+| DHT11 (configured by default) | DATA | GPIO 4 | Change `DHT_TYPE` to `DHT22` for a DHT22 |
+| GPS module | TX → ESP32 RX2 | GPIO 16 | Firmware UART2 at 9600 baud |
+| GPS module | RX ← ESP32 TX2 | GPIO 17 | Optional if only reading GPS data |
+| Buzzer driver | IN | GPIO 25 | Use a transistor/MOSFET driver if current exceeds safe GPIO limits |
+| LCD backpack | SDA/SCL | GPIO 21/22 | Firmware LCD address is `0x27` |
+| MAX30102 | SDA/SCL | GPIO 21/22 | Tested I²C address `0x57` |
+| Motion module | SDA/SCL | GPIO 21/22 | Tested I²C address `0x68`; WHO_AM_I returned `0x70` |
+
+## Electrical precautions
+
+- Connect all module grounds to a common ground.
+- ESP32 GPIO pins are **not 5 V tolerant**.
+- MAX30102 and motion breakout power requirements vary by board. Follow the specific breakout documentation; do not assume every board has the same regulator/level shifting.
+- Some LCD I²C backpacks pull SDA/SCL up to 5 V when powered at 5 V. Verify I²C pull-up voltage or use a suitable bidirectional level shifter before connecting to ESP32 pins.
+- Use a stable supply that can handle ESP32 Wi-Fi current peaks. Do not drive a high-current buzzer directly from a GPIO.
+- Avoid loose wires and short circuits. Disconnect power before changing wiring.
+
+## I²C verification
+
+An I²C scan of the tested setup found:
+
+- `0x27` — LCD
+- `0x57` — MAX30102
+- `0x68` — motion sensor
+
+Addresses can vary by hardware. An address scan confirms that a device acknowledges on the bus; it does not by itself prove that every sensor function works.
+
+## Important measurement note
+
+The configured DHT sensor measures **ambient air temperature and relative humidity**, not human body/core temperature.

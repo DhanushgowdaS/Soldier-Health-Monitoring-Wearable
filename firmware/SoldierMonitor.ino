@@ -421,29 +421,74 @@ void printGpsDiagnostic() {
     }
 }
 
-// Calibrate gyro bias while the MPU6050 is completely still at startup.
+// This board reports WHO_AM_I=0x70 (MPU-6500 family), so use
+// compatible raw I2C registers instead of Adafruit_MPU6050's 0x68 ID check.
+bool imuWriteRegister(uint8_t reg, uint8_t value) {
+    Wire.beginTransmission(0x68);
+    Wire.write(reg);
+    Wire.write(value);
+    return Wire.endTransmission() == 0;
+}
+
+bool imuReadRegisters(uint8_t reg, uint8_t *buffer, uint8_t count) {
+    Wire.beginTransmission(0x68);
+    Wire.write(reg);
+    if (Wire.endTransmission(false) != 0) return false;
+    if (Wire.requestFrom((uint8_t)0x68, count) != count) return false;
+    for (uint8_t i = 0; i < count; i++) buffer[i] = Wire.read();
+    return true;
+}
+
+bool imuReadMotion(float &ax, float &ay, float &az,
+                   float &gx, float &gy, float &gz) {
+    uint8_t b[14];
+    if (!imuReadRegisters(0x3B, b, sizeof(b))) return false;
+    int16_t rawAx = (int16_t)((b[0] << 8) | b[1]);
+    int16_t rawAy = (int16_t)((b[2] << 8) | b[3]);
+    int16_t rawAz = (int16_t)((b[4] << 8) | b[5]);
+    int16_t rawGx = (int16_t)((b[8] << 8) | b[9]);
+    int16_t rawGy = (int16_t)((b[10] << 8) | b[11]);
+    int16_t rawGz = (int16_t)((b[12] << 8) | b[13]);
+
+    // Configured for +/-8 g and +/-500 degrees/second.
+    ax = (rawAx / 4096.0f) * 9.80665f;
+    ay = (rawAy / 4096.0f) * 9.80665f;
+    az = (rawAz / 4096.0f) * 9.80665f;
+    constexpr float DEG_TO_RAD = 0.01745329252f;
+    gx = (rawGx / 65.5f) * DEG_TO_RAD;
+    gy = (rawGy / 65.5f) * DEG_TO_RAD;
+    gz = (rawGz / 65.5f) * DEG_TO_RAD;
+    return true;
+}
+
+// Calibrate gyro bias while the sensor is completely still at startup.
 void calibrateMotionGyro() {
     if (!monitor.mpuAvailable) return;
 
-    Serial.println("Keep MPU6050 still: calibrating gyro...");
+    Serial.println("Keep MPU sensor still: calibrating gyro...");
     const int samples = 300;
     double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+    int validSamples = 0;
 
     for (int i = 0; i < samples; i++) {
-        sensors_event_t acceleration;
-        sensors_event_t gyroscope;
-        sensors_event_t temperature;
-        mpu.getEvent(&acceleration, &gyroscope, &temperature);
-        sumX += gyroscope.gyro.x;
-        sumY += gyroscope.gyro.y;
-        sumZ += gyroscope.gyro.z;
+        float ax, ay, az, gx, gy, gz;
+        if (imuReadMotion(ax, ay, az, gx, gy, gz)) {
+            sumX += gx; sumY += gy; sumZ += gz;
+            validSamples++;
+        }
         delay(5);
     }
 
-    gyroXOffsetRadS = sumX / samples;
-    gyroYOffsetRadS = sumY / samples;
-    gyroZOffsetRadS = sumZ / samples;
-    Serial.println("MPU6050 gyro calibration complete.");
+    if (validSamples < samples * 0.8) {
+        monitor.mpuAvailable = false;
+        Serial.println("IMU read failed during calibration.");
+        return;
+    }
+
+    gyroXOffsetRadS = sumX / validSamples;
+    gyroYOffsetRadS = sumY / validSamples;
+    gyroZOffsetRadS = sumZ / validSamples;
+    Serial.println("IMU gyro calibration complete.");
 }
 
 // Sample every 20 ms. Ordinary axis changes indicate movement only.
@@ -455,19 +500,24 @@ void readMotionSensor() {
     if (now - lastMotionSampleMs < 20) return;
     lastMotionSampleMs = now;
 
-    sensors_event_t acceleration;
-    sensors_event_t gyroscope;
-    sensors_event_t temperature;
-    mpu.getEvent(&acceleration, &gyroscope, &temperature);
+    float accelerationX, accelerationY, accelerationZ;
+    float rawGyroX, rawGyroY, rawGyroZ;
+    if (!imuReadMotion(accelerationX, accelerationY, accelerationZ,
+                       rawGyroX, rawGyroY, rawGyroZ)) {
+        Serial.println("IMU register read failed.");
+        monitor.mpuAvailable = false;
+        monitor.activity = "MPU sensor read failed";
+        return;
+    }
 
-    const float ax = acceleration.acceleration.x / 9.80665f;
-    const float ay = acceleration.acceleration.y / 9.80665f;
-    const float az = acceleration.acceleration.z / 9.80665f;
+    const float ax = accelerationX / 9.80665f;
+    const float ay = accelerationY / 9.80665f;
+    const float az = accelerationZ / 9.80665f;
     const float accelerationMagnitude = sqrtf(ax * ax + ay * ay + az * az);
 
-    const float gx = gyroscope.gyro.x - gyroXOffsetRadS;
-    const float gy = gyroscope.gyro.y - gyroYOffsetRadS;
-    const float gz = gyroscope.gyro.z - gyroZOffsetRadS;
+    const float gx = rawGyroX - gyroXOffsetRadS;
+    const float gy = rawGyroY - gyroYOffsetRadS;
+    const float gz = rawGyroZ - gyroZOffsetRadS;
     const float gyroMagnitudeDps =
         sqrtf(gx * gx + gy * gy + gz * gz) * 57.29578f;
 
@@ -719,15 +769,25 @@ void setup() {
 
     dht.begin();
 
-    monitor.mpuAvailable = mpu.begin();
+    // WHO_AM_I is 0x70 on this compatible MPU-6500-family sensor.
+    // Check the ID, wake it, and configure raw-register ranges directly.
+    uint8_t imuId = 0;
+    monitor.mpuAvailable = imuReadRegisters(0x75, &imuId, 1) &&
+                           (imuId == 0x70 || imuId == 0x68);
     if (monitor.mpuAvailable) {
-        mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-        mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-        mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-        Serial.println("MPU6050 detected.");
+        const bool configured =
+            imuWriteRegister(0x6B, 0x01) &&  // Wake, PLL clock
+            imuWriteRegister(0x1C, 0x10) &&  // Accelerometer +/-8 g
+            imuWriteRegister(0x1B, 0x08) &&  // Gyroscope +/-500 dps
+            imuWriteRegister(0x1A, 0x04);    // DLPF bandwidth
+        delay(100);
+        monitor.mpuAvailable = configured;
+    }
+    if (monitor.mpuAvailable) {
+        Serial.printf("Motion sensor detected; WHO_AM_I=0x%02X.\n", imuId);
         calibrateMotionGyro();
     } else {
-        Serial.println("MPU6050 not detected.");
+        Serial.printf("Motion sensor unavailable; WHO_AM_I=0x%02X.\n", imuId);
     }
 
     monitor.pulseSensorAvailable = pulseSensor.begin(Wire, I2C_SPEED_FAST);

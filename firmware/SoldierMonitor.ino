@@ -454,10 +454,10 @@ bool imuReadMotion(float &ax, float &ay, float &az,
     ax = (rawAx / 4096.0f) * 9.80665f;
     ay = (rawAy / 4096.0f) * 9.80665f;
     az = (rawAz / 4096.0f) * 9.80665f;
-    constexpr float DEG_TO_RAD = 0.01745329252f;
-    gx = (rawGx / 65.5f) * DEG_TO_RAD;
-    gy = (rawGy / 65.5f) * DEG_TO_RAD;
-    gz = (rawGz / 65.5f) * DEG_TO_RAD;
+    constexpr float DEGREES_TO_RADIANS = 0.01745329252f;
+    gx = (rawGx / 65.5f) * DEGREES_TO_RADIANS;
+    gy = (rawGy / 65.5f) * DEGREES_TO_RADIANS;
+    gz = (rawGz / 65.5f) * DEGREES_TO_RADIANS;
     return true;
 }
 

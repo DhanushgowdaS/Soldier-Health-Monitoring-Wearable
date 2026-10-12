@@ -164,11 +164,16 @@ String buildTelemetryJson() {
     }
 
     document["mapsUrl"] = getGoogleMapsUrl();
-    // Activity card reflects MAX30102 finger-measurement state as requested.
-    const bool fingerDetected = monitor.pulseSensorAvailable &&
-        lastInfraredValue >= 50000 && millis() - lastFingerSignalMs < 2000;
-    document["activity"] = fingerDetected ? "Measuring" : "Unknown";
+    // Activity comes from the MPU6050 motion classifier, not the MAX30102.
+    document["mpuAvailable"] = monitor.mpuAvailable;
+    document["activity"] = monitor.mpuAvailable ? monitor.activity : "MPU6050 unavailable";
     document["fallDetected"] = monitor.possibleFall;
+    document["fallChecking"] = fallImpactPending;
+    document["fallState"] = !monitor.mpuAvailable
+        ? "SENSOR UNAVAILABLE"
+        : (monitor.possibleFall
+            ? "POSSIBLE FALL"
+            : (fallImpactPending ? "CHECKING EVENT" : "NORMAL"));
     document["buzzerOn"] = monitor.buzzerOn;
     document["status"] = monitor.status;
     document["alertReason"] = monitor.alertReason;

@@ -1,56 +1,68 @@
-# System Architecture — Smart Wearable Health Monitoring for Soldiers
+# System Architecture
 
-The reference architecture image belongs in this `docs/` folder, alongside this document. The README should link here so the architecture is easy to find from the repository home page.
+## Overview
+
+The classic ESP32 is the central controller. It reads sensor data, updates local outputs, serves the dashboard from LittleFS, and attempts Telegram notifications when configured alert conditions are active.
 
 ## Architecture diagram
 
 ```mermaid
 flowchart LR
-  subgraph Inputs["Sensors / Inputs"]
-    HR["MAX30102\nHeart rate (SpO₂ not implemented yet)"]
-    DHT["DHT11\nAmbient temperature + humidity (DHT11 configured)"]
-    IMU["MPU6050\nMotion / possible-fall heuristic"]
-    GPS["NEO-6M GPS\nLatitude / longitude"]
+  subgraph Sensors
+    HR[MAX30102 optical pulse sensor]
+    IMU[Motion module / MPU-6500-compatible ID]
+    DHT[DHT11 or configured DHT22]
+    GPS[NEO-6M-family GPS]
   end
+  ESP[Classic ESP32 DevKit]
+  LCD[I2C LCD]
+  BUZ[Buzzer driver]
+  FS[LittleFS dashboard files]
+  WEB[Browser dashboard]
+  TG[Telegram Bot API]
 
-  ESP["ESP32 Main Controller\nReads sensors and checks thresholds"]
-  BUZ["Buzzer\nLocal warning"]
-  LCD["I²C LCD\nCompact local status"]
-  FS["LittleFS\nWeb dashboard files"]
-  DASH["Web dashboard\nHTTP + WebSocket"]
-  TG["Telegram bot\nAlert message + Maps link"]
-
-  HR -->|I²C| ESP
+  HR -->|I2C 21/22| ESP
+  IMU -->|I2C 21/22| ESP
   DHT -->|GPIO 4| ESP
-  IMU -->|I²C| ESP
-  GPS -->|UART2| ESP
-  ESP --> BUZ
+  GPS -->|UART2 16/17 at 9600| ESP
   ESP --> LCD
+  ESP --> BUZ
   ESP --> FS
-  FS --> DASH
-  ESP -->|Wi-Fi / Internet| TG
-  ESP -->|Wi-Fi / HTTP + WebSocket| DASH
+  FS --> WEB
+  ESP <-->|HTTP 80 / WebSocket 81| WEB
+  ESP -->|Wi-Fi internet| TG
 ```
 
-## Data flow
-1. ESP32 reads MAX30102 optical samples for a tentative heart-rate estimate.
-2. DHT11 measures **ambient** temperature and relative humidity, not body temperature.
-3. MPU6050 acceleration/gyroscope data feeds a simple possible-fall heuristic.
-4. GPS UART provides coordinates only while a recent fix is available.
-5. LCD shows a compact local status.
-6. LittleFS serves `index.html`, `style.css`, and `script.js`; WebSocket port 81 broadcasts telemetry. `/api/data` is a fallback.
-7. Threshold changes or a possible fall can activate the buzzer and attempt a Telegram alert. Telegram messages use status icons, sensor labels, and a Google Maps link when GPS is available. A recovery message is attempted when alert conditions clear.
+## Runtime data flow
 
-## Current prototype defaults
-- Heart rate > 130 BPM or < 45 BPM when a reading is valid.
-- DHT11 ambient temperature > **29 °C** (temporary threshold for the current DHT11 Telegram test).
-- Relative humidity > 85%.
-- Fall detection uses a simple impact/motion heuristic.
+1. The MAX30102 FIFO is sampled for optical heart-rate estimation and SpO₂ algorithm input.
+2. DHT measures ambient temperature and relative humidity.
+3. The motion module's registers are read directly. The tested module returned WHO_AM_I `0x70`; the firmware accepts `0x70` and `0x68`.
+4. GPS NMEA data is parsed over UART2. Coordinates are shown only when the location is valid and recent.
+5. The LCD shows compact local status; the buzzer is driven by the alert logic.
+6. LittleFS serves `/index.html`, `/style.css`, and `/script.js`. HTTP runs on port 80, WebSocket on port 81, and `/api/data` provides a JSON snapshot.
+7. Telegram messages are attempted over Wi-Fi when alert conditions change. A map link is included when a GPS fix is available.
 
-These are demonstration values, not medical recommendations. Tune and test in controlled conditions.
+## Current firmware thresholds
 
-## Telegram setup
-Copy `firmware/secrets.h.example` to `firmware/secrets.h`; enter Wi-Fi name/password and the replacement Telegram bot token/chat ID locally. The actual secrets file is ignored by Git. Telegram requires Wi-Fi internet access. The firmware applies a one-minute cooldown.
+- Heart rate greater than 100 BPM or less than 60 BPM when a valid reading exists.
+- SpO₂ estimate below 95% when valid.
+- Ambient temperature greater than 37 °C.
+- Relative humidity greater than 85%.
+- Possible-fall heuristic: acceleration magnitude at least 3.0 g after an 8-second startup guard, followed by a stillness window of about 2 seconds.
+- The demo possible-fall state clears after 10 seconds.
 
-## Known limits
-SpO₂ is not implemented and is explicitly shown as unavailable. MAX30102 heart-rate readings can be affected by movement and contact. Fall detection is a crude heuristic with false positives/negatives. GPS may not fix indoors. This is a prototype, not a medical device; do not rely on it for actual emergency response.
+These are code settings for a student prototype, not validated clinical or safety thresholds. They require careful testing and may produce false positives and false negatives.
+
+## Configuration
+
+Copy `firmware/secrets.h.example` to `firmware/secrets.h`, then set the Wi-Fi SSID/password and Telegram bot token/chat ID locally. The actual secrets file is ignored by Git.
+
+## Limitations
+
+- DHT reports ambient conditions, not body temperature.
+- MAX30102 readings depend on sensor fit, contact, motion, and signal quality. Do not treat readings as medical measurements.
+- Fall detection is a simple heuristic, not a validated algorithm. Clearing an alert does not prove safety.
+- GPS reception may be poor indoors and can require several minutes for a fix.
+- Telegram requires working internet access. Current prototype TLS configuration does not validate the server certificate.
+- This system is not a medical device and must not be relied on as the sole emergency monitoring system.

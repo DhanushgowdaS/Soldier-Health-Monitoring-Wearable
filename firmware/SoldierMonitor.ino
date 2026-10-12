@@ -47,7 +47,6 @@ constexpr float SPO2_LOW_PERCENT = 95.0f; // Typical healthy adult range is usua
 constexpr uint32_t SENSOR_INTERVAL_MS = 2000;
 constexpr uint32_t LCD_INTERVAL_MS = 1000;
 constexpr uint32_t WEBSOCKET_INTERVAL_MS = 1000;
-constexpr uint32_t TELEGRAM_COOLDOWN_MS = 60000;
 constexpr uint32_t LCD_PAGE_INTERVAL_MS = 5000;
 
 // ------------------------------ Hardware objects ------------------------------
@@ -94,7 +93,6 @@ uint32_t lastBeatMs = 0;
 uint32_t lastSensorReadMs = 0;
 uint32_t lastLcdUpdateMs = 0;
 uint32_t lastWebSocketBroadcastMs = 0;
-uint32_t lastTelegramSuccessMs = 0;
 uint32_t impactDetectedMs = 0;
 uint32_t lastLcdPageSwitchMs = 0;
 uint32_t lastGpsDiagnosticMs = 0;
@@ -204,11 +202,6 @@ bool sendTelegramAlert(const String& reason) {
         return false;
     }
 
-    if (lastTelegramSuccessMs != 0 && millis() - lastTelegramSuccessMs < TELEGRAM_COOLDOWN_MS) {
-        Serial.println("Telegram skipped: cooldown active.");
-        return false;
-    }
-
     WiFiClientSecure tlsClient;
     // Prototype only: production firmware should validate Telegram's TLS certificate.
     tlsClient.setInsecure();
@@ -241,7 +234,7 @@ bool sendTelegramAlert(const String& reason) {
         ? String(monitor.heartRateBpm, 0) + " BPM"
         : String("Unavailable");
 
-    message += "\\n🫁 <b>SpO₂:</b> ";
+    message += "\n🫁 <b>SpO₂:</b> ";
     message += isValidReading(monitor.spo2Percent)
         ? String(monitor.spo2Percent, 0) + " %"
         : String("Unavailable (waiting for valid signal)");
@@ -284,7 +277,6 @@ bool sendTelegramAlert(const String& reason) {
     http.end();
 
     if (httpStatus >= 200 && httpStatus < 300) {
-        lastTelegramSuccessMs = millis();
         Serial.println("Telegram message sent.");
         return true;
     }
@@ -360,7 +352,20 @@ void readHeartRate() {
             }
         }
     }
+
+    // Clear stale pulse readings when the finger is removed or no fresh
+    // optical samples have arrived. Unavailable is not treated as a safe BPM/SpO2.
+    if (millis() - lastFingerSignalMs >= 2000) {
+        lastInfraredValue = 0;
+        monitor.heartRateBpm = NAN;
+        monitor.spo2Percent = NAN;
+        spo2SampleCount = 0;
+        samplesSinceSpo2Calculation = 0;
+        lastBeatMs = 0;
+        for (float &reading : recentHeartRates) reading = 0;
+    }
 }
+
 void readGps() {
     while (gpsSerial.available() > 0) {
         const char c = static_cast<char>(gpsSerial.read());
@@ -493,11 +498,18 @@ void evaluateAlerts() {
         ? "WARNING"
         : (monitor.gpsFix ? "MONITORING" : "WAITING FOR GPS");
 
-    if (reason.length() > 0 && reason != lastAlertReason) {
+    // Send immediately on each change in the active critical-condition set.
+    // There is intentionally no global 60-second cooldown: a new danger must
+    // not be delayed by an earlier Telegram message. Failed sends are retried
+    // on the next evaluation cycle, while a successfully sent state is not spammed.
+    if (!reason.isEmpty() && reason != lastAlertReason) {
         if (sendTelegramAlert(reason)) {
             lastAlertReason = reason;
         }
     } else if (reason.isEmpty() && !lastAlertReason.isEmpty()) {
+        // Pulse readings may be unavailable when no finger is on the sensor;
+        // environmental and motion alerts still run independently. The NORMAL
+        // message reports unavailable pulse values rather than inventing values.
         if (sendTelegramAlert("NORMAL")) {
             lastAlertReason = "";
         }

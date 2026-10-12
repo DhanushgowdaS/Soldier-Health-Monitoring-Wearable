@@ -521,16 +521,19 @@ void readMotionSensor() {
     const float gyroMagnitudeDps =
         sqrtf(gx * gx + gy * gy + gz * gz) * 57.29578f;
 
-    constexpr float IMPACT_THRESHOLD_G = 2.5f;
-    constexpr float FREEFALL_THRESHOLD_G = 0.45f;
+    // Ignore startup sensor settling and require a stronger impact.
+    // Freefall-like readings alone are too prone to false positives on this module.
+    constexpr float IMPACT_THRESHOLD_G = 3.0f;
     constexpr float STILL_ACCEL_TOLERANCE_G = 0.25f;
     constexpr float STILL_GYRO_THRESHOLD_DPS = 20.0f;
-    constexpr uint32_t STILL_TIME_MS = 1500;
+    constexpr uint32_t STARTUP_GUARD_MS = 8000;
+    constexpr uint32_t STILL_TIME_MS = 2000;
     constexpr uint32_t EVENT_TIMEOUT_MS = 5000;
+    static const uint32_t motionMonitoringStartedMs = millis();
 
     const bool suddenEvent =
-        accelerationMagnitude >= IMPACT_THRESHOLD_G ||
-        accelerationMagnitude <= FREEFALL_THRESHOLD_G;
+        (now - motionMonitoringStartedMs >= STARTUP_GUARD_MS) &&
+        accelerationMagnitude >= IMPACT_THRESHOLD_G;
 
     const bool appearsStill =
         fabsf(accelerationMagnitude - 1.0f) <= STILL_ACCEL_TOLERANCE_G &&
